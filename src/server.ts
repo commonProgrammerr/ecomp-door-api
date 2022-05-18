@@ -4,35 +4,32 @@ import { Server } from "socket.io";
 import { authMiddleware } from "./middleware/auth";
 import { v4 as uuid4 } from "uuid";
 const port = process.env.PORT || 3030;
-const timeout = Number(process.env.TIMEOUT) || 6e5;
-const secure_timeout = Number(process.env.SECURE_TIMEOUT) || 3e5;
-const secure_password = process.env.PASSWORD || "poli é força";
+const secure_timeout = Number(process.env.SECURE_TIMEOUT) || 12e4;
+const secure_password = process.env.PASSWORD || "poli";
 
-const device_mac = "teste";
-const device_ip = "poli";
+const device_mac = "4C:75:25:36:59:5C";
+const device_ip = "::ffff:127.0.0.1";
 const app = express();
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: {
     origin: "*",
+    methods: ["GET", "POST"],
+    credentials: true,
   },
+  allowEIO3: true,
 });
 
-io.connectTimeout(timeout);
-io.on("connect", (socket) => {
-  setTimeout(() => {
-    socket.emit("secure-timeout");
-    socket.disconnect();
-  }, secure_timeout);
-});
+
 
 app.use(express.json());
-app.use(authMiddleware);
+// app.use(authMiddleware);
 
 app.get("/login", (req, res) => {
   try {
     const { mac } = req.query;
     const ip = req.headers["x-forwarded-for"] || req.socket.remoteAddress;
+    console.log(`${new Date().toISOString()}: DEVICE ${mac} FROM ${ip} REQUEST LOGIN`);
 
     if (mac !== device_mac) {
       return res.status(400).json({
@@ -40,31 +37,33 @@ app.get("/login", (req, res) => {
       });
     }
 
-    if (ip !== device_ip) {
-      return res.status(401).json({
-        message: "Unsecure request",
-        details: "Your location isn't aloewd to request a login",
-      });
-    }
+    // if (ip !== device_ip) {
+    //   return res.status(401).json({
+    //     message: "Unsecure request",
+    //     details: "Your location isn't aloewd to request a login",
+    //   });
+    // }
 
     const login = uuid4();
-
-    io.path(`/${login}`).on("connect", (connection) => {
+    io.once("connect", (connection) => {
       console.log(
-        `${new Date().toISOString()}: ${mac} - ${ip} CONNECTED ON (${connection.id
+        `${new Date().toISOString()}: DEVICE ${mac} FROM ${ip} CONNECTED ON (${connection.id
         })'`
       );
+
+      setTimeout(() => {
+        connection.emit("secure-timeout");
+        connection.disconnect();
+      }, secure_timeout);
       connection.on("disconnect", (_) => {
         console.log(
-          `${new Date().toISOString()}: ${mac} - ${ip} DISCONNECTED FROM (${connection.id
+          `${new Date().toISOString()}: DEVICE ${mac} FROM ${ip} DISCONNECTED FROM (${connection.id
           })'`
         );
       });
     });
 
-    res.status(200).json({
-      login,
-    });
+    res.status(200).send(login);
   } catch {
     res.status(500).json({
       message: "Internal error.",
@@ -77,8 +76,9 @@ type Req = Request<{
   password: string;
 }>;
 
-app.post("/open", (req: Req, res) => {
-  const { login, password } = req.params;
+app.post("/open/:login", (req: Req, res) => {
+  const { login } = req.params;
+  const password = req.headers["password"];
   const ip = req.headers["x-forwarded-for"] || req.socket.remoteAddress;
 
   if (password !== secure_password || !ip) {
@@ -88,12 +88,19 @@ app.post("/open", (req: Req, res) => {
     });
   }
 
-  if (io.path(login).emit("open", login, ip)) {
+  if (io.emit(login)) {
     console.log(`${new Date().toISOString()}: ${ip} REQUEST OPEN ON ${login}`);
-    io.path(login).disconnectSockets();
+    res.status(200).json({
+      message: "Success!",
+    });
+  } else {
+    res.status(500).json({
+      message: "Error on send open signal!",
+    });
   }
 });
-httpServer.listen(port, () =>
+
+const server = httpServer.listen(port, () =>
   console.log(
     `${new Date().toISOString()}: Server running at http://localhost:${port}/`
   )
