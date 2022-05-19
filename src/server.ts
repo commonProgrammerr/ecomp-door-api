@@ -1,14 +1,24 @@
+import "./utils/log";
 import express, { Request, response } from "express";
 import { createServer } from "http";
 import { Server } from "socket.io";
 import { authMiddleware } from "./middleware/auth";
 import { v4 as uuid4 } from "uuid";
+import { throws } from "assert";
 const port = process.env.PORT || 3030;
-const secure_timeout = Number(process.env.SECURE_TIMEOUT) || 12e4;
 const secure_password = process.env.PASSWORD || "poli";
 
 const device_mac = "4C:75:25:36:59:5C";
 const device_ip = "::ffff:127.0.0.1";
+
+enum ServerConstants {
+  MIN_PORT_ADRESS = 3030,
+  MAX_PORT_ADRESS = 8020,
+  PORTS_RANGE = Math.abs(ServerConstants.MIN_PORT_ADRESS - ServerConstants.MAX_PORT_ADRESS)
+}
+const ports = Array.from({ length: 12 }).map(() => {
+  return ServerConstants.MIN_PORT_ADRESS + (ServerConstants.PORTS_RANGE * Math.random())
+})
 const app = express();
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
@@ -20,8 +30,6 @@ const io = new Server(httpServer, {
   allowEIO3: true,
 });
 
-
-
 app.use(express.json());
 // app.use(authMiddleware);
 
@@ -29,7 +37,9 @@ app.get("/login", (req, res) => {
   try {
     const { mac } = req.query;
     const ip = req.headers["x-forwarded-for"] || req.socket.remoteAddress;
-    console.log(`${new Date().toISOString()}: DEVICE ${mac} FROM ${ip} REQUEST LOGIN`);
+    console.log(
+      `${new Date().toISOString()}: DEVICE ${mac} FROM ${ip} REQUEST LOGIN`
+    );
 
     if (mac !== device_mac) {
       return res.status(400).json({
